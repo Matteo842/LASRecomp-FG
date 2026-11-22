@@ -8,6 +8,8 @@ on:
 jobs:
   android:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -71,3 +73,11 @@ jobs:
           name: LASRecomp-FG-android
           path: dist/LASRecomp-FG-android.apk
           retention-days: 14
+      # the APK on the repository's releases too (one release, replaced each build): a direct download on the phone
+      - name: Release
+        env: { GH_TOKEN: '${{ github.token }}', GH_REPO: '${{ github.repository }}' }
+        run: |
+          gh release delete fg-latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create fg-latest dist/LASRecomp-FG-android.apk --target "$GITHUB_SHA" --prerelease \
+            --title "LAS Recomp FG (nightly + reprojection frame generation)" \
+            --notes "Personal build: upstream nightly ${GITHUB_SHA::7} + Frame Generation (reprojection) from LASRecomp-Android-Plus. Installs beside the official app."
