@@ -61,6 +61,7 @@ int interp_wanted(void) {
         if (env >= 0) LOG("[interp] LARECOMP_INTERP=%s\n", e);
     }
     if (env >= 0) return env;
+    if (settings_framegen_reproj()) return INTERP_OFF;  // (Frame Generation by reprojection instead: vulkan/framegen.c)
     return g_settings.frame_interp ? INTERP_ON : INTERP_OFF;
 }
 

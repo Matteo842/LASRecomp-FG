@@ -6621,6 +6621,7 @@ static NvnTexture *wx_depth;
 static uint64_t wx_depth_frame;
 static float wx_zn, wx_zf;
 static void weather_encode(void);
+static bool fg_composited;  // (draw_: the scene's composite was drawn - frame generation by reprojection, framegen.c)
 
 extern uint64_t renderer_exec_frame(void);
 bool vk_weather_probes(float out[WEATHER_PROBES]);  // weather_vk.c
@@ -6905,9 +6906,15 @@ static void draw(CmdRec *r, bool indexed) {
     extern bool hud_corners_active(void);
     if (hud_bars && hud_bars_clear()) hud_bars = false;
     wx_composite = wx_mirror = pause_backdrop = false;
+    fg_composited = false;
     draw_(r, indexed);
     hud_bars = (hud_bars || wx_composite || pause_backdrop) && hud_corners_active();
     if (wx_composite) weather_encode();
+    if (fg_composited && st.rt.ncolor && st.rt.color[0]) {  // (frame generation by reprojection copies the picture
+        extern bool fg_enabled(void);                          //  right after the scene's composite: framegen.c)
+        extern void fg_scene_composited(VkCommandBuffer cb, TexBackend *rt);
+        if (fg_enabled()) { vk_end_pass(); fg_scene_composited(vk_cmd(), (TexBackend *)st.rt.color[0]->backend); }
+    }
     PROF_ADD(prof_draw);
 }
 static uint64_t prof_tp_;
@@ -7120,6 +7127,7 @@ static void draw_(CmdRec *r, bool indexed) {
     bool dt = st.ds[0] && !nodt && pass_depth;
     if (ss_need(SS_DT, ss.dt == (VkBool32)dt)) { ss.dt = dt; rec_CmdSetDepthTestEnable(cb, dt); }
     VkBool32 dw = dt && st.ds[1];
+    if (dw) { extern void fg_note_draw(NvnTexture *depth, uint32_t pass_w, uint32_t pass_h); fg_note_draw(st.rt.depth, pass_w, pass_h); }
     if (ss_need(SS_DW, ss.dw == dw)) { ss.dw = dw; rec_CmdSetDepthWriteEnable(cb, dw); }
     VkCompareOp dop = dt ? compare_fn(st.ds[2]) : VK_COMPARE_OP_ALWAYS;
     // EQUAL against a depth pre-pass written by a different vertex shader (foliage, trees) needs both shaders to land
@@ -7565,6 +7573,7 @@ static void draw_(CmdRec *r, bool indexed) {
     }
     stat_draws++;
     cum_draws++;
+    fg_composited = wx_composite;  // (drawn: framegen.c copies it in draw())
     if (g_gpuprof_frame && gp_n) {
         if (!gp_draws[gp_n - 1]) {  // first draw of the row: its fragment shader hash
             size_t l = strlen(gp_label[gp_n - 1]);
@@ -8489,6 +8498,14 @@ VkImageView g_vk_scene_view;
 float g_vk_scene_uv[4];
 
 // Inside the window image's rendering (device.c vk_frame_begin): the game image into (vx, vy, vw, vh).
+// The picture the last present drew from (post-processed) and the part of it its contents fill (Dynamic resolution,
+// not upscaled: the top-left part): frame generation by reprojection samples it (framegen.c)
+static VkImageView g_present_src;
+static float g_present_src_scale[2] = {1, 1};
+VkImageView vk_last_present_src(float scale[2]) {
+    scale[0] = g_present_src_scale[0], scale[1] = g_present_src_scale[1];
+    return g_present_src;
+}
 void vk_present_draw(VkCommandBuffer cb, TexBackend *b, float vx, float vy, float vw, float vh, const float pv[8]) {
     if (!b || !b->image || (b->aspect & ~VK_IMAGE_ASPECT_COLOR_BIT)) return;
     // Dynamic: the image occupies the top-left part of the texture; FSR maps that part to its whole output, otherwise
@@ -8503,6 +8520,7 @@ void vk_present_draw(VkCommandBuffer cb, TexBackend *b, float vx, float vy, floa
     if (!upscaled) { pvc[4] *= fx; pvc[5] *= fy; pvc[6] *= fx; pvc[7] *= fy; }
     pv = pvc;
     g_vk_scene_view = src;  // (the open menu's glare guard reads it: runtime/ui/plastic.mm)
+    g_present_src = src, g_present_src_scale[0] = upscaled ? 1 : fx, g_present_src_scale[1] = upscaled ? 1 : fy;
     memcpy(g_vk_scene_uv, pv + 4, sizeof g_vk_scene_uv);
     VkPipeline p = present_pipeline_ex(g_vk.sc_format, !rcas_done);
     VkDescriptorSet ds = vk_alloc_set(present_set_layout);

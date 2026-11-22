@@ -112,6 +112,9 @@ static void push(const QEvent &e) {
 }
 
 bool menu_is_open(void) { return g_open.load(); }
+#ifndef __APPLE__
+static bool g_menu_drawn;  // (menu_render drew its overlays this frame: menu_redraw)
+#endif
 static void set_open(bool open);
 // The menu in game: a bar drops down from the top over the game, its entries in a row (the one the cursor is on lit),
 // a close X at its right end; each entry opens its page in a window under it. The start screen's Settings is
@@ -863,6 +866,18 @@ static void tab_display(void) {
     opt_toggle("Frame Generation", &g_settings.frame_interp, false,
                "Draws extra images between the game's frames for smoother motion, up to your display's refresh rate. On "
                "a 120 Hz display the game shows 120 fps. Some visual glitches are possible.");
+#ifndef __APPLE__
+    // (runtime/nvn/vulkan/framegen.c, from LASRecomp-Android-Plus: on, it takes the place of the toggle above)
+#ifdef __ANDROID__
+    const bool fg_def = true;
+#else
+    const bool fg_def = false;
+#endif
+    opt_toggle("Frame Generation (reprojection)", &g_settings.frame_gen_reproj, fg_def,
+               "The game runs at its own 30 fps and a cheap in-between frame is made from each one, moved with the "
+               "camera: 60 on screen for about half the work of 60 real frames - a phone stays much cooler. Characters' "
+               "own movement stays at 30. Replaces Frame Generation above while on.");
+#endif
     opt_end();
 }
 
@@ -2070,6 +2085,9 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
     const double tw = target_w, th = target_h;
 #endif
     notice_take();  // (a save failed: the menu opens with it)
+#ifndef __APPLE__
+    g_menu_drawn = false;  // (menu_redraw: only what this call draws)
+#endif
     bool open = g_open.load();
     bool inv = !open && inventory_overlay_wanted();
     bool trk = !open && tracker_overlay_wanted();
@@ -2145,6 +2163,7 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
             void *oc = vk_overlay_begin(cmd);  // (as below)
             ImGui_ImplVulkan_RenderDrawData(dd, (VkCommandBuffer)oc);
             vk_overlay_end(cmd, oc);
+            g_menu_drawn = true;
 #endif
             return;
         }
@@ -2361,5 +2380,19 @@ void menu_render(void *cmd, uint32_t target_w, uint32_t target_h) {
     void *oc = vk_overlay_begin(cmd);
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), (VkCommandBuffer)oc);  // inside the window image's rendering
     vk_overlay_end(cmd, oc);
+    g_menu_drawn = true;
 #endif
 }
+
+#ifndef __APPLE__
+// The last menu_render's overlays drawn again as they were (the in-between frame of frame generation by reprojection,
+// vulkan/framegen.c): no new UI frame - a second menu_render per game frame fed the touch controls twice and the stick
+// snapped back to centre (LASRecomp-Android-Plus)
+void menu_redraw(void *cmd) {
+    ImDrawData *dd = g_menu_drawn ? ImGui::GetDrawData() : NULL;
+    if (!dd || !dd->Valid) return;
+    void *oc = vk_overlay_begin(cmd);
+    ImGui_ImplVulkan_RenderDrawData(dd, (VkCommandBuffer)oc);
+    vk_overlay_end(cmd, oc);
+}
+#endif

@@ -35,6 +35,8 @@ void menu_set_scene(id<MTLTexture> tex, const float uv[4]);
 #elif !defined(__APPLE__)
 // Render thread, inside the window image's rendering (Vulkan command buffer cmd).
 void menu_render(void *cmd, uint32_t target_w, uint32_t target_h);
+// the last menu_render's overlays again, as they were (frame generation's in-between frame: vulkan/framegen.c)
+void menu_redraw(void *cmd);
 #endif
 
 #ifdef __cplusplus

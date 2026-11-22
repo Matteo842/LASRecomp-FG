@@ -149,6 +149,7 @@ bool pace_target_30(void) {
 #else
     extern const char *game_level_name(void);  // hle/widescreen.c
     int t = settings_fps_target();
+    if (settings_framegen_reproj()) return true;  // (Frame Generation by reprojection: 60 shown from the game's 30)
     return t == FPS_TARGET_30 || (t == FPS_TARGET_MIXED && !strcmp(game_level_name(), "Field"));
 #endif
 }

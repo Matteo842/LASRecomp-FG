@@ -21,6 +21,7 @@
 #include "../platform.h"
 #include "../rando.h"
 #include "../rando/seed.h"
+#include "../settings.h"
 
 // GA(PLAYER_STATUS_PTR): PlayerStatus*: current level name at +0
 
@@ -201,6 +202,29 @@ static uint64_t find_player(uint64_t frame) {
 }
 
 uint64_t doorjump_player(uint64_t frame) { return find_player(frame); }  // (test hooks elsewhere: hookshot.c; digsanity: digs.c)
+
+// Link's position for frame generation by reprojection (runtime/nvn/vulkan/framegen.c, the render thread: he is held
+// where the real frame has him instead of moved with the scenery), kept each frame. Only from Link's actor (+0x80,
+// find_player's direct way): never a heap scan for this (70-200 ms on a phone).
+static volatile float g_link_pos[3];
+static volatile bool g_link_ok;
+bool doorjump_link_pos(float p[3]) {
+    if (!g_link_ok) return false;
+    p[0] = g_link_pos[0], p[1] = g_link_pos[1], p[2] = g_link_pos[2];
+    return true;
+}
+static void link_tick(void) {
+    extern int game_in_play(void);  // hle/warp.c
+    uint64_t gm = settings_framegen_reproj() && game_in_play() ? LD64(GA(GAME_MGR)) : 0, actor = gm ? LD64(gm + 0x4b8) : 0;
+    uint64_t pc = actor ? LD64(actor + 0x80) : 0;
+    if (pc && is_player_collision(pc)) {
+        const float *p0 = (const float *)(uintptr_t)(pc + 0x80);
+        g_link_pos[0] = p0[0], g_link_pos[1] = p0[1], g_link_pos[2] = p0[2];
+        g_link_ok = true;
+        return;
+    }
+    g_link_ok = false;
+}
 
 // LARECOMP_DOORJUMP_TEST=<frame>:<cell>:<side>[:<centre>[:<floor>]] (test): from <frame> on, once the level with jumps
 // has been loaded for 60 frames (warp into the cell first, LARECOMP_WARP_AT), put Link 1.2 inside that doorway (with a
@@ -400,6 +424,7 @@ static void place_tick(uint64_t frame) {
 
 void doorjump_tick(uint64_t frame) {
     place_tick(frame);
+    link_tick();
     if (g_njumps < 0) load();
     {   // LARECOMP_LOG_LINK=<every N frames>: Link's position (movement tests)
         static int every = -1;

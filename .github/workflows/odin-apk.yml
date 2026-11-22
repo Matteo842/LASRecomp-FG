@@ -1,0 +1,73 @@
+# Personal build: the upstream nightly + Frame Generation by reprojection (runtime/nvn/vulkan/framegen.c, from
+# Nycolazs/LASRecomp-Android-Plus). Installs as its own app beside the official ones ("LAS Recomp FG").
+name: Odin APK
+on:
+  workflow_dispatch:
+  push:
+    branches: [odin-reproj]
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: NDK and CMake
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;30.0.16248370" "cmake;3.30.4" "platforms;android-36" > /dev/null
+      - name: Dependencies cache
+        id: deps
+        uses: actions/cache/restore@v4
+        with:
+          path: android/deps/out
+          key: android-deps-${{ hashFiles('android/deps/build_deps.sh', 'android/deps/build_gen_deps.sh') }}
+      - name: Dependencies (SDL3, shaderc, volk, Vulkan headers; the game code builder)
+        if: steps.deps.outputs.cache-hit != 'true'
+        run: |
+          bash android/deps/build_deps.sh
+          bash android/deps/build_gen_deps.sh
+      - uses: actions/cache/save@v4
+        if: steps.deps.outputs.cache-hit != 'true'
+        with:
+          path: android/deps/out
+          key: ${{ steps.deps.outputs.cache-primary-key }}
+      # one signing key kept between builds (the Actions cache), so later builds install over this one
+      - name: Signing key cache
+        id: key
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/odin-key
+          key: odin-signing-key-v1
+      - name: Signing key
+        if: steps.key.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/odin-key
+          keytool -genkeypair -v -keystore ~/odin-key/lasrecomp.keystore -alias lasrecomp -keyalg RSA -keysize 2048 \
+            -validity 10000 -storepass odinfg123 -keypass odinfg123 -dname "CN=LAS Recomp FG personal build"
+      - uses: actions/cache/save@v4
+        if: steps.key.outputs.cache-hit != 'true'
+        with:
+          path: ~/odin-key
+          key: odin-signing-key-v1
+      - name: APK
+        env:
+          LARECOMP_KEYSTORE_PASSWORD: odinfg123
+          LARECOMP_APPLICATION_ID: com.lasrecomp.android.fg
+          LARECOMP_APP_LABEL: LAS Recomp FG
+          LARECOMP_VERSION_NAME: nightly-fg-${{ github.sha }}
+        run: |
+          export LARECOMP_KEYSTORE=$HOME/odin-key/lasrecomp.keystore
+          export LARECOMP_VERSION_CODE=$(( ($(date -u +%s) - $(date -u -d 20260101 +%s)) / 60 ))
+          (cd android && ./gradlew assembleRelease --console=plain)
+      - name: Signed, and no game files
+        run: |
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          "$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner" verify --print-certs "$APK"
+          tools/check_apk.sh "$APK"
+          mkdir -p dist && cp "$APK" "dist/LASRecomp-FG-android.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LASRecomp-FG-android
+          path: dist/LASRecomp-FG-android.apk
+          retention-days: 14

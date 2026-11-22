@@ -783,6 +783,7 @@ NVN(nvnWindowInitialize) {
 NVN(nvnWindowFinalize) { (void)c; }
 NVN(nvnWindowSetDebugLabel) { (void)c; }
 #define WIN HOST(NvnWindow, A(0))
+uint32_t g_game_interval = 1;  // the game's present interval now (1: its 60 fps mode, 2: its 30): vulkan/framegen.c
 NVN(nvnWindowGetNativeWindow) { RET(0); }
 NVN(nvnWindowGetNumTextures) { RET(WIN->num); }
 NVN(nvnWindowGetNumActiveTextures) { RET(WIN->active); }
@@ -793,6 +794,7 @@ NVN(nvnWindowSetPresentInterval) {  // (the game's 60 / 30 fps mode: 1 / 2; LARE
     if (log < 0) log = getenv("LARECOMP_LOG_INTERVAL") != NULL;
     if (log && WIN->interval != (int)A(1)) LOG("[nvn] present interval %d -> %d\n", WIN->interval, (int)A(1));
     WIN->interval = (int)A(1);
+    if (A(1) >= 1 && A(1) <= 4) g_game_interval = (uint32_t)A(1);  // (frame generation: in-between frames in its 30)
 }
 NVN(nvnWindowSetCrop) { int *cr = WIN->crop; cr[0] = (int)A(1); cr[1] = (int)A(2); cr[2] = (int)A(3); cr[3] = (int)A(4); }
 NVN(nvnWindowGetCrop) { memcpy(AP(1), WIN->crop, 16); }

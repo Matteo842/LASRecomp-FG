@@ -319,6 +319,27 @@ static const char *builtin_src(const char *name, int *stage) {
                "  uv = p;\n"
                "}\n";
     }
+    // the in-between frame of frame generation into a pre-rotated swapchain image (framegen.c): uv in the window's
+    // shape, the triangle turned as present.vert turns it
+    if (!strcmp(name, "fs_rot1.vert") || !strcmp(name, "fs_rot3.vert")) {
+        *stage = STAGE_VERTEX;
+        return name[6] == '1' ? "#version 450\n"
+               "layout(location = 0) out vec2 uv;\n"
+               "void main() {\n"
+               "  vec2 p = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);\n"
+               "  vec2 c = p * 2.0 - 1.0;\n"
+               "  gl_Position = vec4(-c.y, c.x, 0.0, 1.0);\n"
+               "  uv = p;\n"
+               "}\n"
+               : "#version 450\n"
+               "layout(location = 0) out vec2 uv;\n"
+               "void main() {\n"
+               "  vec2 p = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);\n"
+               "  vec2 c = p * 2.0 - 1.0;\n"
+               "  gl_Position = vec4(c.y, -c.x, 0.0, 1.0);\n"
+               "  uv = p;\n"
+               "}\n";
+    }
     if (!strcmp(name, "nv12.frag")) {
         *stage = STAGE_FRAGMENT;
         return "#version 450\n"

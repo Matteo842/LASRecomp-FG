@@ -46,6 +46,9 @@ const char *touch_control_name(int i) {
 }
 
 Settings g_settings = {
+#ifdef __ANDROID__
+    .frame_gen_reproj = true,  // (phones: 60 on screen from the game's 30 - framegen.c)
+#endif
     .aspect = ASPECT_UNLOCKED,
     .hud_pos = PLAT_TOUCH ? HUD_EDGES : HUD_CENTERED,  // (phones and tablets: as before the setting, clear of the thumbs)
     .dyn_min = 540,
@@ -246,6 +249,7 @@ static bool settings_apply(const char *key, const char *val) {
             if (!strcmp(val, corners[i])) g_settings.fps_corner = i;
     }
     else if (!strcmp(key, "frame_interp")) g_settings.frame_interp = atoi(val) != 0;
+    else if (!strcmp(key, "frame_gen_reproj")) g_settings.frame_gen_reproj = atoi(val) != 0;
     else if (!strcmp(key, "metal_hud")) g_settings.metal_hud = atoi(val) != 0;
     else if (!strcmp(key, "resolution")) {  // (auto: never chosen, the GPU's default)
         int n = atoi(val);
@@ -581,6 +585,7 @@ static void write_settings(FILE *f) {
         fprintf(f, "fps_advanced = %d\n", g_settings.fps_advanced);
     }
     fprintf(f, "frame_interp = %d\n", g_settings.frame_interp);
+    fprintf(f, "frame_gen_reproj = %d\n", g_settings.frame_gen_reproj);
 #ifdef __APPLE__
     fprintf(f, "metal_hud = %d\n", g_settings.metal_hud);
 #endif

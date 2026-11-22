@@ -184,6 +184,13 @@ void widescreen_scene_ubo(const float *u, uint64_t size) {
     g_vp_frame = f;
 }
 
+// The camera's view-projection (rows) of that frame, if its scene was drawn (vulkan/framegen.c)
+bool widescreen_camera(uint64_t frame, float vp[16]) {
+    if (g_vp_frame != frame) return false;
+    memcpy(vp, g_vp, sizeof g_vp);
+    return true;
+}
+
 static bool heap_ptr(uint64_t p) { return p >= HEAP_BASE && p + 0x40 <= HEAP_BASE + HEAP_MAX && !(p & 7); }
 
 // The world point seen at ndc (x, y) of the scene camera (g_vp): on the floor (y 0) for top-down rooms, on the plane

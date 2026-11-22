@@ -25,6 +25,7 @@
 #include <dirent.h>
 #ifdef __ANDROID__
 #include <sys/sysinfo.h>  // (android_import_ram_ok)
+#include <android/native_window.h>  // (ANativeWindow_setFrameRate: frame generation at 60 Hz)
 #endif
 
 VkG g_vk;
@@ -1056,8 +1057,11 @@ static VkPresentModeKHR present_mode(void) {
     // 60). No tearing. LARECOMP_VK_PRESENT=fifo|immediate|mailbox to choose.
     // Frame Generation (frame interpolation, backend_present_now) presents its in-betweens before the frame's image,
     // one display refresh apart: FIFO, where they queue (mailbox would replace them before they were shown).
+    // Frame Generation by reprojection (framegen.c) too: its in-between frame is presented right after the real one
+    // and FIFO shows it a refresh later.
+    extern bool fg_enabled(void);
     const char *e = getenv("LARECOMP_VK_PRESENT");
-    sc_interp = interp_wanted() == INTERP_ON;
+    sc_interp = interp_wanted() == INTERP_ON || fg_enabled();
     if (!e && sc_interp) e = "fifo";
     VkPresentModeKHR want = !e || !strcmp(e, "mailbox") ? VK_PRESENT_MODE_MAILBOX_KHR
                           : !strcmp(e, "immediate") ? VK_PRESENT_MODE_IMMEDIATE_KHR : VK_PRESENT_MODE_FIFO_KHR;
@@ -1074,7 +1078,8 @@ static VkPresentModeKHR present_mode(void) {
 // (AMD on Windows) both settings are FIFO, and remaking the same swapchain left 60 fps stuttering on a 144 Hz display
 // until a restart (#602; 60 Hz was fine). present_mode updates sc_interp: asked once per toggle.
 static bool sc_mode_changed(void) {
-    return sc_interp != (interp_wanted() == INTERP_ON) && present_mode() != sc_mode;
+    extern bool fg_enabled(void);
+    return sc_interp != (interp_wanted() == INTERP_ON || fg_enabled()) && present_mode() != sc_mode;
 }
 
 #ifdef __ANDROID__
@@ -1168,6 +1173,22 @@ static void create_swapchain(void) {
     }
 #else
     VK_CHECK(vkCreateSwapchainKHR(g_vk.dev, &ci, NULL, &g_vk.swapchain));
+#endif
+#ifdef __ANDROID__
+    {   // Frame Generation by reprojection (framegen.c): the real frame and its in-between one are presented back to
+        // back and FIFO shows each for one refresh - right at 60 Hz. On a 120 Hz panel (AYN Odin 3) the in-between one
+        // came a refresh after the real one and then stayed three: uneven. So the window asks for 60 Hz then (Android
+        // 11+, the system may still choose a multiple), and for no particular rate again when it's off.
+        extern bool fg_enabled(void);
+        static int asked = -1;
+        int want = fg_enabled() ? 60 : 0;
+        ANativeWindow *nw = (ANativeWindow *)SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, NULL);
+        if (nw && (want || asked > 0)) {
+            int r = ANativeWindow_setFrameRate(nw, (float)want, ANATIVEWINDOW_FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
+            if (asked != want) LOG("[vk] window frame rate %d Hz asked (%d)\n", want, r);
+            asked = want;
+        }
+    }
 #endif
     static const char *const modes[] = {"immediate", "mailbox", "fifo", "fifo-relaxed"};
     LOG("[vk] swapchain %ux%u, %u images, %s\n", phys.width, phys.height, count,
@@ -1477,6 +1498,8 @@ static void save_window_image(VkCommandBuffer cb, VkSpan *out) {
     image_barrier(cb, g_vk.sc_images[cur_frame.image], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
 }
 
+int vk_sc_quarter(void) { return g_vk.sc_quarter; }  // (framegen.c)
+static bool g_fg_copy;  // vk_frame_end: the HUD mask (and copy) for frame generation by reprojection (backend_present_now)
 // End rendering into the window image and present it. shot_path: also save the window image as PNG.
 void vk_frame_end(const char *shot_path) {
     if (!cur_frame.ok) return;
@@ -1484,6 +1507,11 @@ void vk_frame_end(const char *shot_path) {
     rec_CmdEndRendering(cb);
     VkSpan shot = {0};
     if (shot_path) save_window_image(cb, &shot);
+    if (g_fg_copy) {  // (frame generation: the real window picture's HUD mask, for the in-between frame)
+        extern void fg_copy_window(VkCommandBuffer cb, VkImage sc, VkFormat fmt, uint32_t w, uint32_t h);
+        fg_copy_window(cb, g_vk.sc_images[cur_frame.image], g_vk.sc_format, g_vk.sc_extent.width, g_vk.sc_extent.height);
+        g_fg_copy = false;
+    }
     image_barrier(cb, g_vk.sc_images[cur_frame.image], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
     uint32_t img = cur_frame.image;
     if (!done_sem[img]) done_sem[img] = binary_semaphore();
@@ -1531,6 +1559,7 @@ uint64_t renderer_present_count(void);
 void renderer_save_texture_tex(TexBackend *b, const char *path);
 
 static uint64_t frames, total_frames, g_frame_counter;
+static uint64_t g_fg_frames;  // (the fps line: in-between frames made by reprojection, framegen.c)
 uint64_t renderer_present_count(void) { return total_frames; }  // (the game thread's frame: the HLE hooks')
 // The frame whose work is being translated (rqueue.h rq_frame): "once per frame" state of the translation. Without the
 // render thread, total_frames.
@@ -1889,7 +1918,25 @@ void backend_present_now(NvnTexture *t, uint64_t frame) {
         ip_space();
         // LARECOMP_SHOT_PATH: where (tools/shot.sh: each SHOT_ID run its own, as metal.m; default build/window.png)
         const char *win_path = getenv("LARECOMP_SHOT_PATH") ? getenv("LARECOMP_SHOT_PATH") : "build/window.png";
+        // Frame generation by reprojection (framegen.c, from LASRecomp-Android-Plus): while the game holds its 30, an
+        // in-between frame after each real one - the real picture moved with the scene's depth to the camera half a
+        // step on, the HUD and the overlays kept - presented right after it (FIFO: a refresh later)
+        extern bool fg_frame_wanted(uint64_t frame, TexBackend *fin);
+        extern bool fg_draw(VkCommandBuffer cb, VkFormat fmt, uint32_t ww, uint32_t wh, TexBackend *fin, const float rect[4],
+                            const float crop[4], bool flip_present);
+        bool repeat_fg = rq_on() ? rq_present_is_repeat() : direct_repeat;
+        bool gen = !repeat_fg && fg_frame_wanted(frame, b);
+        g_fg_copy = gen;
         vk_frame_end(shot ? win_path : req[0] ? req : NULL);
+        if (gen && vk_frame_begin(black)) {  // the in-between frame: the next swapchain image, presented a refresh later
+            float rect[4] = {(float)vx, (float)vy, (float)vw, (float)vh};
+            fg_draw(vk_cmd(), g_vk.sc_format, g_vk.sc_extent.width, g_vk.sc_extent.height, b, rect, crop, pv[0] > 0.5f);
+            extern bool fg_draws_overlays(void);  // (drawn from the presented picture: the window's overlays on top again)
+            extern void menu_redraw(void *cmd);  // (the real frame's overlays again: no second UI frame - touch input)
+            if (fg_draws_overlays()) menu_redraw((void *)vk_cmd());
+            vk_frame_end(NULL);
+            g_fg_frames++;
+        }
         if (shot && getenv("LARECOMP_EXIT_AFTER_SHOT")) exit_after_shot();
     } else {
         renderer_submit();
@@ -1964,8 +2011,11 @@ void backend_present_now(NvnTexture *t, uint64_t frame) {
     if (now - last_fps_time >= fps_iv) {
         extern const char *game_level_name(void);
         if (last_fps_time > 0)
-            LOG("[vk] t=%.1f frame %llu %.1f fps max %.0fms level %s (%s%s)\n", now, (unsigned long long)frame,
-                frames / (now - last_fps_time), max_gap * 1000.0, game_level_name(), renderer_stats(), pp_text());
+            LOG("[vk] t=%.1f frame %llu %.1f fps%s max %.0fms level %s (%s%s)\n", now, (unsigned long long)frame,
+                frames / (now - last_fps_time), g_fg_frames ? " (+ generated)" : "", max_gap * 1000.0, game_level_name(),
+                renderer_stats(), pp_text());
+        if (g_fg_frames) LOG("[framegen] %.1f in-between frames/s\n", g_fg_frames / (now - last_fps_time));
+        g_fg_frames = 0;
         max_gap = 0;
         frames = 0;
         last_fps_time = now;

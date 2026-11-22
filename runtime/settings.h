@@ -2,6 +2,7 @@
 #pragma once
 #include "cosmetic_colour.h"
 #include <stdbool.h>
+#include <stdlib.h>
 
 enum { ASPECT_UNLOCKED = 0, ASPECT_ORIGINAL = 1 };
 enum { HUD_CENTERED = 0, HUD_EDGES = 1 };
@@ -58,6 +59,8 @@ typedef struct {
     bool powerup_music;  // Guardian Acorn / Piece of Power music (hle/powerup_music.c)
     bool menu_sounds;    // LAS Recomp's own menu sounds (runtime/menu_sfx.c)
     bool frame_interp;   // Frame Generation: extra images between the game's frames (runtime/nvn/interp.c)
+    bool frame_gen_reproj;  // Frame Generation (reprojection): the game at its 30, an in-between frame by reprojection
+                            // after each (Vulkan: runtime/nvn/vulkan/framegen.c); takes the place of frame_interp
     bool metal_hud;      // macOS: Apple's Metal Performance HUD over the game (runtime/nvn/metal.m metal_hud_apply)
     int show_fps;        // FPS_*: the frame rate counter's corner (FPS_OFF: none)
     int fps_corner;      // FPS_* (not off): the corner Show FPS goes back to when turned on (the menu's Position row)
@@ -156,6 +159,16 @@ extern Settings g_settings;
 // The FPS target in effect: Dynamic resolution's own (user 2026-11-12) - with a resolution of the player's choosing
 // the frame pacer decides (pace.c), as at 60
 static inline int settings_fps_target(void) { return g_settings.dyn_res ? g_settings.fps_target : FPS_TARGET_60; }
+// Frame Generation by reprojection in effect (Vulkan only; LARECOMP_FRAMEGEN=0/1 overrides the setting)
+static inline bool settings_framegen_reproj(void) {
+#ifdef __APPLE__
+    return false;
+#else
+    static int env = -2;
+    if (env == -2) { const char *e = getenv("LARECOMP_FRAMEGEN"); env = e && *e ? atoi(e) != 0 : -1; }
+    return env >= 0 ? env != 0 : g_settings.frame_gen_reproj;
+#endif
+}
 
 const char *touch_control_name(int i);  // the on-screen controls' ini names (touch_ctl_<name>), "" past TOUCH_NCTL
 
