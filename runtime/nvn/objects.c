@@ -783,7 +783,7 @@ NVN(nvnWindowInitialize) {
 NVN(nvnWindowFinalize) { (void)c; }
 NVN(nvnWindowSetDebugLabel) { (void)c; }
 #define WIN HOST(NvnWindow, A(0))
-uint32_t g_game_interval = 1;  // the game's present interval now (1: its 60 fps mode, 2: its 30): vulkan/framegen.c
+extern uint32_t g_game_interval;  // (runtime/hle/framepace.c)
 NVN(nvnWindowGetNativeWindow) { RET(0); }
 NVN(nvnWindowGetNumTextures) { RET(WIN->num); }
 NVN(nvnWindowGetNumActiveTextures) { RET(WIN->active); }

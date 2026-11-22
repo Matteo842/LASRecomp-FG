@@ -1560,6 +1560,8 @@ void renderer_save_texture_tex(TexBackend *b, const char *path);
 
 static uint64_t frames, total_frames, g_frame_counter;
 static uint64_t g_fg_frames;  // (the fps line: in-between frames made by reprojection, framegen.c)
+static double g_fg_rate;       // (their rate over the last fps line's second: the FPS overlay adds them, menu.mm)
+double vk_fg_rate(void) { return g_fg_rate; }
 uint64_t renderer_present_count(void) { return total_frames; }  // (the game thread's frame: the HLE hooks')
 // The frame whose work is being translated (rqueue.h rq_frame): "once per frame" state of the translation. Without the
 // render thread, total_frames.
@@ -2014,7 +2016,8 @@ void backend_present_now(NvnTexture *t, uint64_t frame) {
             LOG("[vk] t=%.1f frame %llu %.1f fps%s max %.0fms level %s (%s%s)\n", now, (unsigned long long)frame,
                 frames / (now - last_fps_time), g_fg_frames ? " (+ generated)" : "", max_gap * 1000.0, game_level_name(),
                 renderer_stats(), pp_text());
-        if (g_fg_frames) LOG("[framegen] %.1f in-between frames/s\n", g_fg_frames / (now - last_fps_time));
+        g_fg_rate = g_fg_frames / (now - last_fps_time);
+        if (g_fg_frames) LOG("[framegen] %.1f in-between frames/s\n", g_fg_rate);
         g_fg_frames = 0;
         max_gap = 0;
         frames = 0;

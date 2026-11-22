@@ -1900,7 +1900,12 @@ static void fps_box(float scale) {
     ImFont *font = ImGui::GetFont();
     float big = ImGui::GetFontSize() * fk, small = big * 0.5f;
     char b[32];
-    snprintf(b, sizeof b, "%.0f", g_ov_cache ? g_fps_shown : ImGui::GetIO().Framerate);
+    double shown1 = g_ov_cache ? g_fps_shown : ImGui::GetIO().Framerate;
+#ifndef __APPLE__
+    extern double vk_fg_rate(void);  // (Frame Generation by reprojection's in-between frames: no UI frame of their own)
+    if (settings_framegen_reproj() && vk_fg_rate() > 1) shown1 += vk_fg_rate();
+#endif
+    snprintf(b, sizeof b, "%.0f", shown1);
     ImVec2 p = ImGui::GetCursorScreenPos();
     float nw = font->CalcTextSizeA(big, FLT_MAX, 0, b).x, gap = small * 0.4f;
     dl->AddText(font, big, p, IM_COL32(255, 255, 255, 255), b);
@@ -1943,13 +1948,21 @@ static void perf_overlay(float scale) {
     // what it shows, first: the box is as wide as its widest row (a wider font or a longer translation, Android's
     // "Draws / passes / dispatches" ran into its value) and its footer, 250 at least
     double shown = g_ov_cache ? g_fps_shown : ImGui::GetIO().Framerate;
+#ifndef __APPLE__
+    // (Frame Generation by reprojection: its in-between frames redraw the overlays without a UI frame - counted here)
+    extern double vk_fg_rate(void);
+    double fg_rate = settings_framegen_reproj() ? vk_fg_rate() : 0;
+    if (fg_rate > 1) shown += fg_rate;
+#else
+    double fg_rate = 0;
+#endif
     char fps_n[16], head[96];
     snprintf(fps_n, sizeof fps_n, "%.0f", shown);
     // the frame's work against the target's time (user 2026-11-12, as Metal HUD: "8 / 16.7 ms" has room to spare; the
     // frame's own time sits at the target while it keeps up): 60's, or 30's while the game runs at 30 (Internal FPS
     // target 30, or frame pacing holding it there); under Frame Generation the game's own frame rate before it
     float target = ph.hold30 || settings_fps_target() == FPS_TARGET_30 ? 33.3f : 16.7f;
-    if (g_settings.frame_interp && ph.fps > 0 && shown > ph.fps * 1.3)
+    if ((g_settings.frame_interp || fg_rate > 1) && ph.fps > 0 && shown > ph.fps * 1.3)
         snprintf(head, sizeof head, L("%.0f game, %.1f / %.1f ms"), ph.fps, ph.work_ms, target);
     else snprintf(head, sizeof head, "%.1f / %.1f ms", ph.work_ms, target);
     struct Line { const char *label; char value[80]; ImU32 col; };

@@ -327,8 +327,8 @@ bool fg_frame_wanted(uint64_t frame, TexBackend *fin) {
         room_since = -1;
     }
     bool ok = have && g_have_prev && g_scene_ok && g_depth && g_depth->backend && g_game_interval == 2 && !menu_is_open() && !paused;
-    static int logwhy = -1;  // LARECOMP_LOG_FRAMEGEN=1: why frames went without an in-between one, every 2 s
-    if (logwhy < 0) logwhy = getenv("LARECOMP_LOG_FRAMEGEN") != NULL;
+    static int logwhy = -1;  // why frames went without an in-between one, every 2 s (LARECOMP_LOG_FRAMEGEN=0: not)
+    if (logwhy < 0) logwhy = !getenv("LARECOMP_LOG_FRAMEGEN") || atoi(getenv("LARECOMP_LOG_FRAMEGEN")) != 0;
     if (logwhy) {
         static int n, why[6];
         static double at;
@@ -337,8 +337,8 @@ bool fg_frame_wanted(uint64_t frame, TexBackend *fin) {
         why[3] += g_game_interval != 2, why[4] += menu_is_open(), why[5] += paused;
         if (now - at > 2000) {
             if (why[0] + why[1] + why[2] + why[3] + why[5])
-                LOG("[framegen] of %d frames without: camera %d, scene %d, depth %d, interval %d, menu %d, paused %d (avg %.1f ms)\n", n,
-                    why[0], why[1], why[2], why[3], why[4], why[5], avg);
+                LOG("[framegen] of %d frames without: camera %d, scene %d, depth %d, interval %d (now %u), menu %d, paused %d (avg %.1f ms)\n", n,
+                    why[0], why[1], why[2], why[3], g_game_interval, why[4], why[5], avg);
             n = 0, memset(why, 0, sizeof why), at = now;
         }
     }

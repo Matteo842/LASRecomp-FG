@@ -18,8 +18,13 @@
 extern volatile uint64_t g_vsync_count;  // runtime/hle/vi.c
 uint64_t g_frame_steps_late;             // (stats) frames that advanced more than one step
 
+// The game's frame interval now (1: its 60 fps mode, 2: its 30), from its frame timer each frame - the present
+// interval call (nvn/objects.c) doesn't come every frame. Frame generation by reprojection makes in-between frames
+// only in its 30 (nvn/vulkan/framegen.c; as LASRecomp-Android-Plus).
+uint32_t g_game_interval = 1;
 uint32_t rt_frame_steps(uint32_t interval) {
     static int on = -1, max_steps, forced;
+    if (interval >= 1 && interval <= 4) g_game_interval = interval;
     if (on < 0) {
         const char *e = ENV("LARECOMP_FRAMEPACE");
         on = e ? atoi(e) != 0 : 0;  // off by default: the world (Link's movement) doesn't use this step (tested)
