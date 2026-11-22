@@ -113,6 +113,11 @@ static void push(const QEvent &e) {
 
 bool menu_is_open(void) { return g_open.load(); }
 #ifndef __APPLE__
+// Frame Generation by reprojection's in-between frames a second (vulkan/device.c): no UI frame of their own, so the
+// FPS overlay adds them
+extern "C" double vk_fg_rate(void);
+#endif
+#ifndef __APPLE__
 static bool g_menu_drawn;  // (menu_render drew its overlays this frame: menu_redraw)
 #endif
 static void set_open(bool open);
@@ -1902,7 +1907,6 @@ static void fps_box(float scale) {
     char b[32];
     double shown1 = g_ov_cache ? g_fps_shown : ImGui::GetIO().Framerate;
 #ifndef __APPLE__
-    extern double vk_fg_rate(void);  // (Frame Generation by reprojection's in-between frames: no UI frame of their own)
     if (settings_framegen_reproj() && vk_fg_rate() > 1) shown1 += vk_fg_rate();
 #endif
     snprintf(b, sizeof b, "%.0f", shown1);
@@ -1950,7 +1954,6 @@ static void perf_overlay(float scale) {
     double shown = g_ov_cache ? g_fps_shown : ImGui::GetIO().Framerate;
 #ifndef __APPLE__
     // (Frame Generation by reprojection: its in-between frames redraw the overlays without a UI frame - counted here)
-    extern double vk_fg_rate(void);
     double fg_rate = settings_framegen_reproj() ? vk_fg_rate() : 0;
     if (fg_rate > 1) shown += fg_rate;
 #else
