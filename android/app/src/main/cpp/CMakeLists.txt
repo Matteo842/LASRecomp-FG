@@ -109,5 +109,5 @@ target_compile_options(main PRIVATE -O2 -g -UNDEBUG -fno-strict-aliasing -Wall -
     $<$<COMPILE_LANGUAGE:CXX>:-std=c++17>)
 # -z nostart-stop-gc: tables in named sections found through
 # __start_ / __stop_ symbols (runtime/hle.h, ipc.h, main.c); 16 KB pages (Android 15+)
-target_link_libraries(main PRIVATE SDL3 shaderc_shared avcodec avformat avutil swscale adrenotools android log dl m)
+target_link_libraries(main PRIVATE SDL3 shaderc_shared avcodec avformat avutil swscale adrenotools android nativewindow log dl m)
 target_link_options(main PRIVATE -Wl,-z,nostart-stop-gc -Wl,-z,max-page-size=16384)
